@@ -1,0 +1,23 @@
+# Copy this file to config.toml and fill in your values.
+# config.toml is git-ignored so your secrets stay local.
+
+[discogs]
+# Personal access token from https://www.discogs.com/settings/developers
+token = "YOUR_DISCOGS_TOKEN"
+
+# Optional: user agent sent to the Discogs API.
+user_agent = "PenguinJazzGuide/0.1"
+
+# Optional: preferred release countries, most preferred first.
+country_preference = ["US", "Japan", "Europe", "UK"]
+
+[google]
+# Path to your Google service account JSON key file.
+service_account_file = "service_account.json"
+
+# Provide EITHER the spreadsheet id (from its URL) or its name.
+spreadsheet_id = "YOUR_SPREADSHEET_ID"
+# spreadsheet_name = "Penguin Jazz Guide"
+
+# Worksheet/tab to write to.
+worksheet_name = "Sheet1"

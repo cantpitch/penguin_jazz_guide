@@ -1,0 +1,136 @@
+"""Interactive command-line workflow."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+
+from .config import ConfigError, load_config
+from .discogs_service import DiscogsError, DiscogsService
+from .models import AlbumSelection, ReleaseMatch
+from .sheets_service import SheetsError, SheetsService
+
+
+def _prompt(message: str) -> str:
+    return input(message).strip()
+
+
+def _choose_release(matches: list[ReleaseMatch]) -> ReleaseMatch | None:
+    """Present matches and return the selected release, or None to cancel."""
+    if not matches:
+        return None
+    if len(matches) == 1:
+        only = matches[0]
+        print(
+            f"\nOne match found: {only.album_name} "
+            f"({only.year_display}, {only.country_display})"
+        )
+        answer = _prompt("Use this release? [Y/n] ").lower()
+        return only if answer in ("", "y", "yes") else None
+
+    print(f"\nFound {len(matches)} matches:")
+    for index, match in enumerate(matches, start=1):
+        print(
+            f"  {index}. {match.album_name} "
+            f"[{match.year_display}, {match.country_display}]"
+        )
+
+    while True:
+        answer = _prompt("Select a number (or 'q' to cancel): ").lower()
+        if answer in ("q", "quit", ""):
+            return None
+        if answer.isdigit() and 1 <= int(answer) <= len(matches):
+            return matches[int(answer) - 1]
+        print("Invalid selection, try again.")
+
+
+def run(config_path: str) -> int:
+    try:
+        config = load_config(config_path)
+    except ConfigError as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        discogs = DiscogsService(
+            token=config.discogs_token,
+            user_agent=config.user_agent,
+            country_preference=config.country_preference,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"Failed to initialise Discogs client: {exc}", file=sys.stderr)
+        return 2
+
+    artist = _prompt("Artist name: ")
+    album = _prompt("Album search text: ")
+    if not artist or not album:
+        print("Both an artist and album are required.", file=sys.stderr)
+        return 2
+
+    try:
+        matches = discogs.search_releases(artist, album)
+    except DiscogsError as exc:
+        print(f"Search error: {exc}", file=sys.stderr)
+        return 1
+
+    if not matches:
+        print("No CD releases found for that artist/album.")
+        return 0
+
+    chosen = _choose_release(matches)
+    if chosen is None:
+        print("Cancelled. Nothing written.")
+        return 0
+
+    try:
+        tracks = discogs.get_tracklist(chosen.id)
+    except DiscogsError as exc:
+        print(f"Tracklist error: {exc}", file=sys.stderr)
+        return 1
+
+    if not tracks:
+        print("That release has no tracklist on Discogs. Nothing written.")
+        return 0
+
+    selection = AlbumSelection(release=chosen, tracks=tracks)
+    print(f"\n{chosen.album_name} — {len(tracks)} track(s):")
+    for track in tracks:
+        position = f"{track.position}. " if track.position else ""
+        print(f"  {position}{track.title}")
+
+    confirm = _prompt("\nWrite these tracks to the sheet? [Y/n] ").lower()
+    if confirm not in ("", "y", "yes"):
+        print("Cancelled. Nothing written.")
+        return 0
+
+    try:
+        sheets = SheetsService.from_config(config)
+        written = sheets.append_album(selection)
+    except SheetsError as exc:
+        print(f"Google Sheets error: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Wrote {written} row(s) to the sheet.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Search Discogs for a jazz album and add it to a Google Sheet."
+    )
+    parser.add_argument(
+        "-c",
+        "--config",
+        default="config.toml",
+        help="Path to the TOML config file (default: config.toml).",
+    )
+    args = parser.parse_args(argv)
+    try:
+        return run(args.config)
+    except KeyboardInterrupt:
+        print("\nCancelled.")
+        return 130
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
