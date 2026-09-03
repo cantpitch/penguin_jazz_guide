@@ -11,6 +11,13 @@ user_agent = "PenguinJazzGuide/0.1"
 # Optional: preferred release countries, most preferred first.
 country_preference = ["US", "Japan", "Europe", "UK"]
 
+[spotify]
+# Optional: Spotify app credentials for album URL lookup.
+# Create an app at https://developer.spotify.com/dashboard.
+# Omit this section to skip Spotify lookup.
+client_id = "YOUR_SPOTIFY_CLIENT_ID"
+client_secret = "YOUR_SPOTIFY_CLIENT_SECRET"
+
 [google]
 # Path to your Google service account JSON key file.
 service_account_file = "service_account.json"

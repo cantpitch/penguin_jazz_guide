@@ -7,8 +7,9 @@ import sys
 
 from .config import ConfigError, load_config
 from .discogs_service import DiscogsError, DiscogsService
-from .models import AlbumSelection, ReleaseMatch
+from .models import AlbumSelection, ReleaseMatch, SpotifyAlbumMatch
 from .sheets_service import SheetsError, SheetsService
+from .spotify_service import SpotifyError, SpotifyService
 
 
 def _prompt(message: str) -> str:
@@ -42,6 +43,59 @@ def _choose_release(matches: list[ReleaseMatch]) -> ReleaseMatch | None:
         if answer.isdigit() and 1 <= int(answer) <= len(matches):
             return matches[int(answer) - 1]
         print("Invalid selection, try again.")
+
+
+def _choose_spotify_album(matches: list[SpotifyAlbumMatch]) -> SpotifyAlbumMatch | None:
+    """Present Spotify album matches and return the selected album, or None."""
+    if not matches:
+        return None
+    if len(matches) == 1:
+        only = matches[0]
+        print(
+            f"\nOne Spotify album found: {only.name} by {only.artist} "
+            f"({only.release_date_display})"
+        )
+        answer = _prompt("Use this Spotify URL? [Y/n] ").lower()
+        return only if answer in ("", "y", "yes") else None
+
+    print(f"\nFound {len(matches)} Spotify album matches:")
+    for index, match in enumerate(matches, start=1):
+        print(
+            f"  {index}. {match.name} by {match.artist} "
+            f"[{match.release_date_display}]"
+        )
+
+    while True:
+        answer = _prompt("Select a Spotify album number (or 's' to skip): ").lower()
+        if answer in ("s", "skip", "q", "quit", ""):
+            return None
+        if answer.isdigit() and 1 <= int(answer) <= len(matches):
+            return matches[int(answer) - 1]
+        print("Invalid selection, try again.")
+
+
+def _lookup_spotify_album_url(config, artist: str, album: str) -> str | None:
+    """Find an optional Spotify album URL, continuing gracefully if unavailable."""
+    if not config.spotify_client_id or not config.spotify_client_secret:
+        print("\nSpotify credentials not configured; skipping Spotify lookup.")
+        return None
+
+    try:
+        spotify = SpotifyService(config.spotify_client_id, config.spotify_client_secret)
+        matches = spotify.search_albums(artist, album)
+    except SpotifyError as exc:
+        print(f"Spotify lookup failed; continuing without URL: {exc}", file=sys.stderr)
+        return None
+
+    if not matches:
+        print("\nNo Spotify album found; continuing without Spotify URL.")
+        return None
+
+    chosen = _choose_spotify_album(matches)
+    if chosen is None:
+        print("Continuing without Spotify URL.")
+        return None
+    return chosen.url
 
 
 def run(config_path: str) -> int:
@@ -92,8 +146,11 @@ def run(config_path: str) -> int:
         print("That release has no tracklist on Discogs. Nothing written.")
         return 0
 
-    selection = AlbumSelection(release=chosen, tracks=tracks)
+    spotify_url = _lookup_spotify_album_url(config, chosen.artist, chosen.album_name)
+    selection = AlbumSelection(release=chosen, tracks=tracks, album_url=spotify_url)
     print(f"\n{chosen.album_name} — {len(tracks)} track(s):")
+    if spotify_url:
+        print(f"Spotify URL: {spotify_url}")
     for track in tracks:
         position = f"{track.position}. " if track.position else ""
         print(f"  {position}{track.title}")

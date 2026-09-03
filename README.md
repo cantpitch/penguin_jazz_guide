@@ -20,6 +20,7 @@ add them to a Google Sheet so you can track progress, notes, etc.
     * That information is run against discogs.com to find possible matches.
     * If more than one is available present a list with album name, issue date, and country of release that the user can manually select.
     * Download the album song list and upload into the next available row in the google sheet.
+    * Search Spotify for the selected album and put the album URL in the first track row if found.
 * Only interested in CDs. Preferably US, but sometimes rely on Japan, Europe, etc. releases.
 * Configuration should be available to specify google sheet, discogs.com api key, and any other required config information.
 
@@ -46,7 +47,14 @@ This project uses [uv](https://docs.astral.sh/uv/) and Python 3.12.
    * Share your target Google Sheet with the service account's email address
      (found in the JSON file) so it has edit access.
 
-4. **Create your config**
+4. **Optional: create a Spotify app**
+
+   Spotify album URL lookup uses the Client Credentials flow. Create an app at
+   https://developer.spotify.com/dashboard and copy its client ID and client
+   secret. If Spotify credentials are omitted, the tool skips Spotify lookup and
+   still uploads the album to Google Sheets.
+
+5. **Create your config**
 
    ```bash
    cp config.example.toml config.toml
@@ -58,6 +66,10 @@ This project uses [uv](https://docs.astral.sh/uv/) and Python 3.12.
    [discogs]
    token = "YOUR_DISCOGS_TOKEN"
    country_preference = ["US", "Japan", "Europe", "UK"]
+
+   [spotify]
+   client_id = "YOUR_SPOTIFY_CLIENT_ID"
+   client_secret = "YOUR_SPOTIFY_CLIENT_SECRET"
 
    [google]
    service_account_file = "service_account.json"
@@ -82,12 +94,17 @@ The tool will:
    Europe, etc.).
 3. If several match, present a numbered list (album, year, country) to choose
    from.
-4. Show the tracklist and, on confirmation, append **one row per track** to the
+4. Search Spotify for the selected album if Spotify credentials are configured.
+   If several Spotify albums match, present a numbered list to choose from. If
+   none match, continue without a Spotify URL.
+5. Show the tracklist and, on confirmation, append **one row per track** to the
    next available rows of the sheet with the columns:
    `Listened | Artist Name | Album Name | Song Name | Album URL`.
 
 The header row is created automatically if the worksheet is empty. The
-`Listened` and `Album URL` columns are left blank for you to fill in manually.
+`Listened` column is left blank for you to fill in manually. When Spotify lookup
+finds a selected album, the Spotify album URL is written only to the `Album URL`
+cell on the first track row for that album.
 
 ## Troubleshooting Google Sheets access
 
@@ -100,6 +117,10 @@ If you see `Google Sheets error: Failed to open Google Sheet`, check:
   account's Google Cloud project.
 * `google.service_account_file` points to the correct JSON key file. Relative
   paths are resolved from the folder containing `config.toml`.
+* If the message says it cannot read the service-account JSON file, move the
+  key into a readable folder and update `google.service_account_file`.
+* If the message says Google denied access to the spreadsheet, share the sheet
+  with the service account's `client_email` and give it Editor access.
 
 # Development
 

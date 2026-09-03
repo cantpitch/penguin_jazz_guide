@@ -48,3 +48,18 @@ class AlbumSelection:
 
     release: ReleaseMatch
     tracks: list[Track]
+    album_url: str | None = None
+
+
+@dataclass
+class SpotifyAlbumMatch:
+    """A candidate album returned from Spotify search."""
+
+    name: str
+    artist: str
+    release_date: str | None
+    url: str
+
+    @property
+    def release_date_display(self) -> str:
+        return self.release_date or "Unknown"

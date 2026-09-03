@@ -372,6 +372,7 @@ source = { editable = "." }
 dependencies = [
     { name = "gspread" },
     { name = "python3-discogs-client" },
+    { name = "requests" },
 ]
 
 [package.optional-dependencies]
@@ -384,6 +385,7 @@ requires-dist = [
     { name = "gspread", specifier = ">=6.2.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "python3-discogs-client", specifier = ">=2.9" },
+    { name = "requests", specifier = ">=2.34.2" },
 ]
 provides-extras = ["dev"]
 

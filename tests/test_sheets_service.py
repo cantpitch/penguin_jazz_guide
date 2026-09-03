@@ -20,12 +20,34 @@ def make_selection():
     return AlbumSelection(release=release, tracks=tracks)
 
 
+def make_config(service_account):
+    return Config(
+        discogs_token="discogs-token",
+        spotify_client_id=None,
+        spotify_client_secret=None,
+        service_account_file=service_account,
+        spreadsheet_id="sheet-id",
+        spreadsheet_name=None,
+        worksheet_name="Sheet1",
+        country_preference=["US"],
+        user_agent="test",
+    )
+
+
 def test_build_rows_one_per_track():
     rows = SheetsService.build_rows(make_selection())
     assert rows == [
         ["", "Miles Davis", "Kind Of Blue", "So What", ""],
         ["", "Miles Davis", "Kind Of Blue", "Freddie Freeloader", ""],
     ]
+
+
+def test_build_rows_puts_album_url_on_first_track_only():
+    selection = make_selection()
+    selection.album_url = "https://open.spotify.com/album/abc"
+    rows = SheetsService.build_rows(selection)
+    assert rows[0][4] == "https://open.spotify.com/album/abc"
+    assert rows[1][4] == ""
 
 
 def test_build_rows_empty_tracks():
@@ -74,16 +96,8 @@ def test_append_album_no_tracks_writes_nothing():
 
 def test_from_config_explains_empty_spreadsheet_not_found(monkeypatch, tmp_path):
     service_account = tmp_path / "sa.json"
-    service_account.write_text("{}")
-    config = Config(
-        discogs_token="discogs-token",
-        service_account_file=service_account,
-        spreadsheet_id="sheet-id",
-        spreadsheet_name=None,
-        worksheet_name="Sheet1",
-        country_preference=["US"],
-        user_agent="test",
-    )
+    service_account.write_text('{"client_email": "svc@example.iam.gserviceaccount.com"}')
+    config = make_config(service_account)
 
     client = MagicMock()
     client.open_by_key.side_effect = gspread.exceptions.SpreadsheetNotFound()
@@ -94,7 +108,7 @@ def test_from_config_explains_empty_spreadsheet_not_found(monkeypatch, tmp_path)
 
     message = str(exc_info.value)
     assert "spreadsheet not found or not shared" in message
-    assert "client_email" in message
+    assert "svc@example.iam.gserviceaccount.com" in message
     assert "sheet-id" in message
 
 
@@ -103,15 +117,7 @@ def test_from_config_includes_exception_type_when_message_is_blank(
 ):
     service_account = tmp_path / "sa.json"
     service_account.write_text("{}")
-    config = Config(
-        discogs_token="discogs-token",
-        service_account_file=service_account,
-        spreadsheet_id="sheet-id",
-        spreadsheet_name=None,
-        worksheet_name="Sheet1",
-        country_preference=["US"],
-        user_agent="test",
-    )
+    config = make_config(service_account)
 
     class BlankError(Exception):
         def __str__(self):
@@ -122,4 +128,44 @@ def test_from_config_includes_exception_type_when_message_is_blank(
     with pytest.raises(SheetsError) as exc_info:
         SheetsService.from_config(config)
 
-    assert str(exc_info.value) == "Failed to open Google Sheet: BlankError"
+    assert "failed to load service account credentials" in str(exc_info.value)
+    assert "BlankError" in str(exc_info.value)
+
+
+def test_from_config_explains_service_account_permission_error(
+    monkeypatch, tmp_path
+):
+    service_account = tmp_path / "sa.json"
+    service_account.write_text("{}")
+    config = make_config(service_account)
+
+    monkeypatch.setattr(
+        gspread, "service_account", MagicMock(side_effect=PermissionError())
+    )
+
+    with pytest.raises(SheetsError) as exc_info:
+        SheetsService.from_config(config)
+
+    message = str(exc_info.value)
+    assert "cannot read service account JSON file" in message
+    assert str(service_account) in message
+    assert "PermissionError" in message
+
+
+def test_from_config_explains_spreadsheet_permission_error(monkeypatch, tmp_path):
+    service_account = tmp_path / "sa.json"
+    service_account.write_text('{"client_email": "svc@example.iam.gserviceaccount.com"}')
+    config = make_config(service_account)
+
+    client = MagicMock()
+    client.open_by_key.side_effect = PermissionError()
+    monkeypatch.setattr(gspread, "service_account", MagicMock(return_value=client))
+
+    with pytest.raises(SheetsError) as exc_info:
+        SheetsService.from_config(config)
+
+    message = str(exc_info.value)
+    assert "Google denied access to the spreadsheet" in message
+    assert "svc@example.iam.gserviceaccount.com" in message
+    assert "Editor access" in message
+    assert "sheet-id" in message

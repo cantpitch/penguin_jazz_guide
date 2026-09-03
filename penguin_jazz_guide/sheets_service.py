@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import gspread
@@ -28,6 +29,27 @@ class SheetsService:
     def from_config(cls, config: Config) -> "SheetsService":
         try:
             client = gspread.service_account(filename=str(Path(config.service_account_file)))
+        except (FileNotFoundError, IsADirectoryError, PermissionError) as exc:
+            raise SheetsError(
+                "Failed to open Google Sheet: cannot read service account JSON "
+                f"file at {config.service_account_file} ({_format_exception(exc)}). "
+                "Verify google.service_account_file points to a readable JSON key "
+                "file, not a folder."
+            ) from exc
+        except GoogleAuthError as exc:
+            raise SheetsError(
+                "Failed to open Google Sheet: Google authentication failed "
+                f"({type(exc).__name__}: {exc}). Verify "
+                f"google.service_account_file: {config.service_account_file}"
+            ) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise SheetsError(
+                "Failed to open Google Sheet: failed to load service account "
+                f"credentials from {config.service_account_file} "
+                f"({_format_exception(exc)})."
+            ) from exc
+
+        try:
             if config.spreadsheet_id:
                 spreadsheet = client.open_by_key(config.spreadsheet_id)
             else:
@@ -38,8 +60,16 @@ class SheetsService:
             raise SheetsError(
                 "Failed to open Google Sheet: spreadsheet not found or not shared "
                 f"with the service account ({target}). Share the sheet with the "
-                "client_email in your service account JSON, and verify the "
+                f"service account ({_service_account_email(config)}), and verify the "
                 "spreadsheet id/name in config.toml."
+            ) from exc
+        except PermissionError as exc:
+            target = _spreadsheet_target(config)
+            raise SheetsError(
+                "Failed to open Google Sheet: Google denied access to the "
+                f"spreadsheet ({target}) ({_format_exception(exc)}). Share the "
+                f"sheet with the service account ({_service_account_email(config)}), "
+                "and confirm it has Editor access."
             ) from exc
         except GoogleAuthError as exc:
             raise SheetsError(
@@ -94,7 +124,16 @@ class SheetsService:
         """Build sheet rows (Listened, Artist, Album, Song, URL) per track."""
         artist = selection.release.artist
         album = selection.release.album_name
-        return [["", artist, album, track.title, ""] for track in selection.tracks]
+        return [
+            [
+                "",
+                artist,
+                album,
+                track.title,
+                selection.album_url if index == 0 and selection.album_url else "",
+            ]
+            for index, track in enumerate(selection.tracks)
+        ]
 
 
 def _spreadsheet_target(config: Config) -> str:
@@ -108,3 +147,12 @@ def _format_exception(exc: Exception) -> str:
     if message:
         return f"{type(exc).__name__}: {message}"
     return type(exc).__name__
+
+
+def _service_account_email(config: Config) -> str:
+    try:
+        with Path(config.service_account_file).open("r", encoding="utf-8") as fh:
+            email = json.load(fh).get("client_email")
+    except (OSError, json.JSONDecodeError):
+        email = None
+    return email or "client_email from your service account JSON"
