@@ -131,6 +131,17 @@ The first run opens a browser to log in to Spotify. The token is cached in
 `.spotify_token.json` next to `config.toml` (git-ignored) and refreshed
 automatically. Playlist mode needs no Google settings.
 
+### Adding to both the sheet and a playlist
+
+```bash
+uv run penguin-jazz-guide --playlist --sheet
+```
+
+With `--sheet` (`-s`), the tool first writes the album to the sheet as usual,
+then adds the same Spotify album to a playlist. Cancelling the sheet write
+also skips the playlist. This mode needs both the Google and Spotify settings.
+`--sheet` only works together with `--playlist`.
+
 ## Troubleshooting Google Sheets access
 
 If you see `Google Sheets error: Failed to open Google Sheet`, check:

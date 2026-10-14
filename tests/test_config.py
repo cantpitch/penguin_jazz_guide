@@ -201,10 +201,10 @@ client_id = "spotify-id"
 client_secret = "spotify-secret"
 """,
     )
-    config = load_config(path, require_sheets=False)
+    config = load_config(path, require_sheets=False, require_playlists=True)
     assert config.spotify_redirect_uri == "http://127.0.0.1:8888/callback"
     assert config.spotify_token_cache == (tmp_path / ".spotify_token.json").resolve()
 
     path.write_text('[discogs]\ntoken = "abc"\n')
     with pytest.raises(ConfigError, match="playlist"):
-        load_config(path, require_sheets=False)
+        load_config(path, require_sheets=False, require_playlists=True)

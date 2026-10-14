@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from penguin_jazz_guide import cli
 from penguin_jazz_guide.models import (
     ReleaseMatch,
@@ -171,11 +173,10 @@ def test_add_album_to_playlist_mismatch_declined_adds_nothing(monkeypatch):
     album.id = "album1"
     answers = iter(["n"])
     FakeUserClient.instances.clear()
-    monkeypatch.setattr(cli, "_lookup_spotify_album", lambda *args: album)
     monkeypatch.setattr(cli, "SpotifyUserClient", FakeUserClient)
     monkeypatch.setattr(cli, "_prompt", lambda message: next(answers))
 
-    result = cli._add_album_to_playlist(_playlist_config(), _release(), _discogs_tracks(2))
+    result = cli._add_album_to_playlist(_playlist_config(), album, _discogs_tracks(2))
 
     assert result == 0
     client = FakeUserClient.instances[0]
@@ -188,11 +189,10 @@ def test_add_album_to_playlist_mismatch_accepted_adds(monkeypatch):
     album.id = "album1"
     answers = iter(["y", "1", "y"])
     FakeUserClient.instances.clear()
-    monkeypatch.setattr(cli, "_lookup_spotify_album", lambda *args: album)
     monkeypatch.setattr(cli, "SpotifyUserClient", FakeUserClient)
     monkeypatch.setattr(cli, "_prompt", lambda message: next(answers))
 
-    result = cli._add_album_to_playlist(_playlist_config(), _release(), _discogs_tracks(2))
+    result = cli._add_album_to_playlist(_playlist_config(), album, _discogs_tracks(2))
 
     assert result == 0
     assert FakeUserClient.instances[0].added == [("p1", ["spotify:track:a"])]
@@ -203,11 +203,10 @@ def test_add_album_to_new_playlist_creates_after_confirm(monkeypatch):
     album.id = "album1"
     answers = iter(["n", "Modal", "y"])
     FakeUserClient.instances.clear()
-    monkeypatch.setattr(cli, "_lookup_spotify_album", lambda *args: album)
     monkeypatch.setattr(cli, "SpotifyUserClient", FakeUserClient)
     monkeypatch.setattr(cli, "_prompt", lambda message: next(answers))
 
-    assert cli._add_album_to_playlist(_playlist_config(), _release(), _discogs_tracks(1)) == 0
+    assert cli._add_album_to_playlist(_playlist_config(), album, _discogs_tracks(1)) == 0
 
     client = FakeUserClient.instances[0]
     assert client.created == ["Modal"]
@@ -219,12 +218,87 @@ def test_add_album_to_playlist_cancel_creates_nothing(monkeypatch):
     album.id = "album1"
     answers = iter(["n", "Modal", "n"])
     FakeUserClient.instances.clear()
-    monkeypatch.setattr(cli, "_lookup_spotify_album", lambda *args: album)
     monkeypatch.setattr(cli, "SpotifyUserClient", FakeUserClient)
     monkeypatch.setattr(cli, "_prompt", lambda message: next(answers))
 
-    assert cli._add_album_to_playlist(_playlist_config(), _release(), _discogs_tracks(1)) == 0
+    assert cli._add_album_to_playlist(_playlist_config(), album, _discogs_tracks(1)) == 0
 
     client = FakeUserClient.instances[0]
     assert client.created == []
     assert client.added == []
+
+
+class FakeDiscogs:
+    def __init__(self, **kwargs):
+        pass
+
+    def search_releases(self, artist, album):
+        return [_release()]
+
+    def get_tracklist(self, release_id):
+        return _discogs_tracks(1)
+
+
+def _patch_run(monkeypatch, sheet_result, load_calls):
+    album = spotify_match()
+    album.id = "album1"
+    calls = []
+
+    def fake_load_config(path, require_sheets, require_playlists):
+        load_calls.append((require_sheets, require_playlists))
+        config = _playlist_config()
+        config.discogs_token = "token"
+        config.user_agent = "test"
+        config.country_preference = ["US"]
+        return config
+
+    def fake_write(config, release, tracks, spotify_album):
+        calls.append(("sheet", spotify_album))
+        return sheet_result
+
+    def fake_add(config, spotify_album, tracks, check_counts=True):
+        calls.append(("playlist", spotify_album, check_counts))
+        return 0
+
+    answers = iter(["Miles Davis", "Kind Of Blue", ""])
+    monkeypatch.setattr(cli, "load_config", fake_load_config)
+    monkeypatch.setattr(cli, "DiscogsService", FakeDiscogs)
+    monkeypatch.setattr(cli, "_lookup_spotify_album", lambda *args: album)
+    monkeypatch.setattr(cli, "_write_album_to_sheet", fake_write)
+    monkeypatch.setattr(cli, "_add_album_to_playlist", fake_add)
+    monkeypatch.setattr(cli, "_prompt", lambda message: next(answers))
+    return album, calls
+
+
+def test_run_playlist_and_sheet_does_both(monkeypatch):
+    load_calls = []
+    album, calls = _patch_run(monkeypatch, None, load_calls)
+
+    assert cli.run("config.toml", playlist=True, sheet=True) == 0
+
+    assert load_calls == [(True, True)]
+    assert calls == [("sheet", album), ("playlist", album, False)]
+
+
+def test_run_playlist_and_sheet_stops_if_sheet_cancelled(monkeypatch):
+    album, calls = _patch_run(monkeypatch, 0, [])
+
+    assert cli.run("config.toml", playlist=True, sheet=True) == 0
+
+    assert calls == [("sheet", album)]
+
+
+def test_run_playlist_only_skips_sheet(monkeypatch):
+    load_calls = []
+    album, calls = _patch_run(monkeypatch, None, load_calls)
+
+    assert cli.run("config.toml", playlist=True) == 0
+
+    assert load_calls == [(False, True)]
+    assert calls == [("playlist", album, True)]
+
+
+def test_sheet_flag_requires_playlist():
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--sheet"])
+    assert exc.value.code == 2

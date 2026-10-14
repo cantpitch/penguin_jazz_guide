@@ -32,7 +32,9 @@ class Config:
     spotify_redirect_uri: str = DEFAULT_SPOTIFY_REDIRECT_URI
     spotify_token_cache: Path = Path(DEFAULT_SPOTIFY_TOKEN_CACHE)
 
-    def validate(self, require_sheets: bool = True) -> None:
+    def validate(
+        self, require_sheets: bool = True, require_playlists: bool = False
+    ) -> None:
         if not self.discogs_token:
             raise ConfigError("Missing 'discogs.token' in config.")
         if bool(self.spotify_client_id) != bool(self.spotify_client_secret):
@@ -42,7 +44,7 @@ class Config:
             )
         if require_sheets:
             self.validate_sheets()
-        else:
+        if require_playlists:
             self.validate_playlists()
 
     def validate_playlists(self) -> None:
@@ -77,12 +79,14 @@ class Config:
 
 
 def load_config(
-    path: str | Path = DEFAULT_CONFIG_PATH, require_sheets: bool = True
+    path: str | Path = DEFAULT_CONFIG_PATH,
+    require_sheets: bool = True,
+    require_playlists: bool = False,
 ) -> Config:
     """Load and validate configuration from a TOML file.
 
-    Pass ``require_sheets=False`` for playlist mode, which needs Spotify
-    credentials instead of Google Sheets settings.
+    ``require_sheets`` checks the Google Sheets settings and
+    ``require_playlists`` checks the Spotify credentials playlist mode needs.
     """
     config_path = Path(path).expanduser()
     if not config_path.exists():
@@ -126,5 +130,7 @@ def load_config(
         ),
         spotify_token_cache=token_cache,
     )
-    config.validate(require_sheets=require_sheets)
+    config.validate(
+        require_sheets=require_sheets, require_playlists=require_playlists
+    )
     return config

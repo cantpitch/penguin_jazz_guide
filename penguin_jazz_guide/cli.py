@@ -198,12 +198,17 @@ def _choose_playlist(playlists: list[SpotifyPlaylist]) -> SpotifyPlaylist | None
 
 
 def _add_album_to_playlist(
-    config, release: ReleaseMatch, discogs_tracks: list[Track]
+    config,
+    album: SpotifyAlbumMatch | None,
+    discogs_tracks: list[Track],
+    check_counts: bool = True,
 ) -> int:
-    """Find the release on Spotify and add its tracks to a chosen playlist."""
-    album = _lookup_spotify_album(config, release.artist, release.album_name)
+    """Add a Spotify album's tracks to a chosen playlist.
+
+    Pass ``check_counts=False`` when the track counts were already confirmed.
+    """
     if album is None or not album.id:
-        print("No Spotify album selected. Nothing added.")
+        print("No Spotify album selected. Nothing added to a playlist.")
         return 0
 
     spotify = SpotifyUserClient(
@@ -227,7 +232,7 @@ def _add_album_to_playlist(
         number = f"{track.track_number}. " if track.track_number else ""
         print(f"  {number}{track.name}")
 
-    if not _confirm_track_counts(len(discogs_tracks), len(tracks)):
+    if check_counts and not _confirm_track_counts(len(discogs_tracks), len(tracks)):
         print("Cancelled. Nothing added.")
         return 0
 
@@ -254,9 +259,70 @@ def _add_album_to_playlist(
     return 0
 
 
-def run(config_path: str, playlist: bool = False) -> int:
+def _write_album_to_sheet(
+    config,
+    release: ReleaseMatch,
+    tracks: list[Track],
+    spotify_album: SpotifyAlbumMatch | None,
+) -> int | None:
+    """Confirm and write the album to the sheet.
+
+    Returns None once the rows are written, or an exit code if the user
+    cancelled or the write failed.
+    """
+    if not tracks:
+        print("That release has no tracklist on Discogs. Nothing written.")
+        return 0
+
+    spotify_url = spotify_album.url if spotify_album else None
+    selection = AlbumSelection(
+        release=release,
+        tracks=tracks,
+        album_url=spotify_url,
+        discogs_url=f"https://www.discogs.com/release/{release.id}",
+    )
+    print(f"\n{release.album_name} — {len(tracks)} track(s):")
+    if spotify_url:
+        print(f"Spotify URL: {spotify_url}")
+    for track in tracks:
+        position = f"{track.position}. " if track.position else ""
+        print(f"  {position}{track.title}")
+
+    if spotify_album and spotify_album.id:
+        spotify_count = _spotify_track_count(config, spotify_album.id)
+        if spotify_count is not None and not _confirm_track_counts(
+            len(tracks), spotify_count
+        ):
+            print("Cancelled. Nothing written.")
+            return 0
+
+    confirm = _prompt("\nWrite these tracks to the sheet? [Y/n] ").lower()
+    if confirm not in ("", "y", "yes"):
+        print("Cancelled. Nothing written.")
+        return 0
+
     try:
-        config = load_config(config_path, require_sheets=not playlist)
+        sheets = SheetsService.from_config(config)
+        written = sheets.append_album(selection)
+    except SheetsError as exc:
+        print(f"Google Sheets error: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Wrote {written} row(s) to the sheet.")
+    return None
+
+
+def run(config_path: str, playlist: bool = False, sheet: bool = False) -> int:
+    """Run the interactive workflow.
+
+    Writes to the sheet by default; ``playlist`` adds to a Spotify playlist
+    instead, and ``playlist`` with ``sheet`` does both.
+    """
+    write_sheet = sheet or not playlist
+    try:
+        config = load_config(
+            config_path, require_sheets=write_sheet, require_playlists=playlist
+        )
     except ConfigError as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 2
@@ -298,57 +364,26 @@ def run(config_path: str, playlist: bool = False) -> int:
         print(f"Tracklist error: {exc}", file=sys.stderr)
         return 1
 
-    if playlist:
-        return _add_album_to_playlist(config, chosen, tracks)
-
-    if not tracks:
-        print("That release has no tracklist on Discogs. Nothing written.")
-        return 0
-
     spotify_album = _lookup_spotify_album(config, chosen.artist, chosen.album_name)
-    spotify_url = spotify_album.url if spotify_album else None
-    selection = AlbumSelection(
-        release=chosen,
-        tracks=tracks,
-        album_url=spotify_url,
-        discogs_url=f"https://www.discogs.com/release/{chosen.id}",
-    )
-    print(f"\n{chosen.album_name} — {len(tracks)} track(s):")
-    if spotify_url:
-        print(f"Spotify URL: {spotify_url}")
-    for track in tracks:
-        position = f"{track.position}. " if track.position else ""
-        print(f"  {position}{track.title}")
 
-    if spotify_album and spotify_album.id:
-        spotify_count = _spotify_track_count(config, spotify_album.id)
-        if spotify_count is not None and not _confirm_track_counts(
-            len(tracks), spotify_count
-        ):
-            print("Cancelled. Nothing written.")
+    if write_sheet:
+        result = _write_album_to_sheet(config, chosen, tracks, spotify_album)
+        if result is not None:
+            return result
+        if not playlist:
             return 0
 
-    confirm = _prompt("\nWrite these tracks to the sheet? [Y/n] ").lower()
-    if confirm not in ("", "y", "yes"):
-        print("Cancelled. Nothing written.")
-        return 0
-
-    try:
-        sheets = SheetsService.from_config(config)
-        written = sheets.append_album(selection)
-    except SheetsError as exc:
-        print(f"Google Sheets error: {exc}", file=sys.stderr)
-        return 1
-
-    print(f"Wrote {written} row(s) to the sheet.")
-    return 0
+    # The sheet step already confirmed any track count mismatch.
+    return _add_album_to_playlist(
+        config, spotify_album, tracks, check_counts=not write_sheet
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Search Discogs for a jazz album and add it to a Google Sheet "
-            "or a Spotify playlist."
+            "Search Discogs for a jazz album and add it to a Google Sheet, "
+            "a Spotify playlist, or both."
         )
     )
     parser.add_argument(
@@ -363,9 +398,17 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Add the selected album to a Spotify playlist instead of the sheet.",
     )
+    parser.add_argument(
+        "-s",
+        "--sheet",
+        action="store_true",
+        help="With --playlist, also write the album to the sheet.",
+    )
     args = parser.parse_args(argv)
+    if args.sheet and not args.playlist:
+        parser.error("--sheet can only be used with --playlist.")
     try:
-        return run(args.config, playlist=args.playlist)
+        return run(args.config, playlist=args.playlist, sheet=args.sheet)
     except KeyboardInterrupt:
         print("\nCancelled.")
         return 130
