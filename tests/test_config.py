@@ -187,3 +187,24 @@ spreadsheet_id = "s"
     )
     with pytest.raises(ConfigError, match="must be a JSON file"):
         load_config(path)
+
+
+def test_playlist_mode_skips_google_and_requires_spotify(tmp_path):
+    path = write_config(
+        tmp_path,
+        """
+[discogs]
+token = "abc"
+
+[spotify]
+client_id = "spotify-id"
+client_secret = "spotify-secret"
+""",
+    )
+    config = load_config(path, require_sheets=False)
+    assert config.spotify_redirect_uri == "http://127.0.0.1:8888/callback"
+    assert config.spotify_token_cache == (tmp_path / ".spotify_token.json").resolve()
+
+    path.write_text('[discogs]\ntoken = "abc"\n')
+    with pytest.raises(ConfigError, match="playlist"):
+        load_config(path, require_sheets=False)

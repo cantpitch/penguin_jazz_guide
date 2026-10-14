@@ -6,13 +6,24 @@ import json
 from pathlib import Path
 
 import gspread
+from gspread.worksheet import Worksheet
+from gspread.spreadsheet import Spreadsheet
 from google.auth.exceptions import GoogleAuthError
 from gspread.exceptions import APIError, SpreadsheetNotFound
 
 from .config import Config
 from .models import AlbumSelection
 
-HEADER = ["Listened", "Artist Name", "Album Name", "Song Name", "Album URL"]
+HEADER = [
+    "Listened",
+    "Artist Name",
+    "Album Name",
+    "Song Name",
+    "Album URL",
+    "Discogs URL",
+]
+LIGHT_GREEN_3 = {"red": 220 / 255, "green": 233 / 255, "blue": 213 / 255}
+WHITE = {"red": 1, "green": 1, "blue": 1}
 
 
 class SheetsError(Exception):
@@ -22,13 +33,15 @@ class SheetsError(Exception):
 class SheetsService:
     """Wrapper over gspread for appending Penguin Jazz Guide rows."""
 
-    def __init__(self, worksheet):
+    def __init__(self, worksheet: Worksheet):
         self.worksheet = worksheet
 
     @classmethod
     def from_config(cls, config: Config) -> "SheetsService":
         try:
-            client = gspread.service_account(filename=str(Path(config.service_account_file)))
+            client = gspread.service_account(
+                filename=str(Path(config.service_account_file))
+            )
         except (FileNotFoundError, IsADirectoryError, PermissionError) as exc:
             raise SheetsError(
                 "Failed to open Google Sheet: cannot read service account JSON "
@@ -93,7 +106,7 @@ class SheetsService:
         return service
 
     @staticmethod
-    def _get_or_create_worksheet(spreadsheet, name: str):
+    def _get_or_create_worksheet(spreadsheet: Spreadsheet, name: str):
         try:
             return spreadsheet.worksheet(name)
         except gspread.WorksheetNotFound:
@@ -114,7 +127,17 @@ class SheetsService:
         if not rows:
             return 0
         try:
+            start_row = len(self.worksheet.get_all_values()) + 1
             self.worksheet.append_rows(rows, value_input_option="USER_ENTERED")
+            end_row = start_row + len(rows) - 1
+            if selection.album_url:
+                background_color = LIGHT_GREEN_3
+            else:
+                background_color = WHITE
+            self.worksheet.format(
+                f"{start_row}:{end_row}",
+                {"backgroundColor": background_color},
+            )
         except Exception as exc:  # noqa: BLE001
             raise SheetsError(f"Failed to append rows: {exc}") from exc
         return len(rows)
@@ -130,7 +153,12 @@ class SheetsService:
                 artist,
                 album,
                 track.title,
-                selection.album_url if index == 0 and selection.album_url else "",
+                (
+                    selection.album_url
+                    if index == 0 and selection.album_url
+                    else "xxx" if index == 0 else ""
+                ),
+                selection.discogs_url if index == 0 and selection.discogs_url else "",
             ]
             for index, track in enumerate(selection.tracks)
         ]

@@ -1,6 +1,8 @@
 from penguin_jazz_guide.discogs_service import (
     DiscogsService,
+    _catalog_numbers_from_release,
     _country_rank,
+    _extract_catalog_numbers,
     _extract_format_names,
 )
 from penguin_jazz_guide.models import ReleaseMatch
@@ -19,6 +21,25 @@ def test_extract_format_names_from_dicts():
 
 def test_extract_format_names_handles_none():
     assert _extract_format_names(None) == []
+
+
+def test_extract_catalog_numbers_supports_single_and_multiple_values():
+    assert _extract_catalog_numbers("CL  jazz") == ["CL  jazz"]
+    assert _extract_catalog_numbers(["CL  jazz", "CK  jazz"]) == [
+        "CL  jazz",
+        "CK  jazz",
+    ]
+
+
+def test_extract_catalog_numbers_handles_none():
+    assert _extract_catalog_numbers(None) == []
+
+
+def test_catalog_numbers_are_read_from_discogs_data():
+    class SearchResult:
+        data = {"catno": "CK 08123"}
+
+    assert _catalog_numbers_from_release(SearchResult()) == ["CK 08123"]
 
 
 def test_country_rank_orders_preference():

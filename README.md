@@ -54,6 +54,12 @@ This project uses [uv](https://docs.astral.sh/uv/) and Python 3.12.
    secret. If Spotify credentials are omitted, the tool skips Spotify lookup and
    still uploads the album to Google Sheets.
 
+   For playlist mode (`--playlist`), also add the redirect URI
+   `http://127.0.0.1:8888/callback` to the app's settings in the Spotify
+   dashboard. Apps in Development Mode need the app owner to have Spotify
+   Premium, and any other account that uses the app must be added under the
+   app's *Users Management*.
+
 5. **Create your config**
 
    ```bash
@@ -105,6 +111,25 @@ The header row is created automatically if the worksheet is empty. The
 `Listened` column is left blank for you to fill in manually. When Spotify lookup
 finds a selected album, the Spotify album URL is written only to the `Album URL`
 cell on the first track row for that album.
+
+## Adding an album to a Spotify playlist
+
+```bash
+uv run penguin-jazz-guide --playlist
+```
+
+Album search and selection work the same as above (Discogs, then Spotify).
+Instead of writing to the sheet, the tool then:
+
+1. Shows the Spotify album's tracklist.
+2. Lists the playlists you own or collaborate on. Pick one by number, or
+   enter `n` to name a new playlist (default name: `Penguin Jazz Guide`).
+3. On confirmation, adds every track on the album to the playlist. New
+   playlists are created only after you confirm and are private by default.
+
+The first run opens a browser to log in to Spotify. The token is cached in
+`.spotify_token.json` next to `config.toml` (git-ignored) and refreshed
+automatically. Playlist mode needs no Google settings.
 
 ## Troubleshooting Google Sheets access
 

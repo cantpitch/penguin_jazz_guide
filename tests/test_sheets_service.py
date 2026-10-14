@@ -5,7 +5,12 @@ import pytest
 
 from penguin_jazz_guide.config import Config
 from penguin_jazz_guide.models import AlbumSelection, ReleaseMatch, Track
-from penguin_jazz_guide.sheets_service import HEADER, SheetsError, SheetsService
+from penguin_jazz_guide.sheets_service import (
+    HEADER,
+    LIGHT_GREEN_3,
+    SheetsError,
+    SheetsService,
+)
 
 
 def make_selection():
@@ -37,8 +42,8 @@ def make_config(service_account):
 def test_build_rows_one_per_track():
     rows = SheetsService.build_rows(make_selection())
     assert rows == [
-        ["", "Miles Davis", "Kind Of Blue", "So What", ""],
-        ["", "Miles Davis", "Kind Of Blue", "Freddie Freeloader", ""],
+        ["", "Miles Davis", "Kind Of Blue", "So What", "xxx", ""],
+        ["", "Miles Davis", "Kind Of Blue", "Freddie Freeloader", "", ""],
     ]
 
 
@@ -48,6 +53,16 @@ def test_build_rows_puts_album_url_on_first_track_only():
     rows = SheetsService.build_rows(selection)
     assert rows[0][4] == "https://open.spotify.com/album/abc"
     assert rows[1][4] == ""
+
+
+def test_build_rows_puts_discogs_url_in_sixth_column_on_first_track_only():
+    selection = make_selection()
+    selection.discogs_url = "https://www.discogs.com/release/1"
+
+    rows = SheetsService.build_rows(selection)
+
+    assert rows[0][5] == "https://www.discogs.com/release/1"
+    assert rows[1][5] == ""
 
 
 def test_build_rows_empty_tracks():
@@ -84,6 +99,21 @@ def test_append_album_appends_rows():
     assert kwargs["value_input_option"] == "USER_ENTERED"
 
 
+def test_append_album_formats_spotify_rows_light_green():
+    worksheet = MagicMock()
+    worksheet.get_all_values.return_value = [HEADER]
+    service = SheetsService(worksheet)
+    selection = make_selection()
+    selection.album_url = "https://open.spotify.com/album/abc"
+
+    assert service.append_album(selection) == 2
+
+    worksheet.format.assert_called_once_with(
+        "2:3",
+        {"backgroundColor": LIGHT_GREEN_3},
+    )
+
+
 def test_append_album_no_tracks_writes_nothing():
     worksheet = MagicMock()
     service = SheetsService(worksheet)
@@ -96,7 +126,9 @@ def test_append_album_no_tracks_writes_nothing():
 
 def test_from_config_explains_empty_spreadsheet_not_found(monkeypatch, tmp_path):
     service_account = tmp_path / "sa.json"
-    service_account.write_text('{"client_email": "svc@example.iam.gserviceaccount.com"}')
+    service_account.write_text(
+        '{"client_email": "svc@example.iam.gserviceaccount.com"}'
+    )
     config = make_config(service_account)
 
     client = MagicMock()
@@ -132,9 +164,7 @@ def test_from_config_includes_exception_type_when_message_is_blank(
     assert "BlankError" in str(exc_info.value)
 
 
-def test_from_config_explains_service_account_permission_error(
-    monkeypatch, tmp_path
-):
+def test_from_config_explains_service_account_permission_error(monkeypatch, tmp_path):
     service_account = tmp_path / "sa.json"
     service_account.write_text("{}")
     config = make_config(service_account)
@@ -154,7 +184,9 @@ def test_from_config_explains_service_account_permission_error(
 
 def test_from_config_explains_spreadsheet_permission_error(monkeypatch, tmp_path):
     service_account = tmp_path / "sa.json"
-    service_account.write_text('{"client_email": "svc@example.iam.gserviceaccount.com"}')
+    service_account.write_text(
+        '{"client_email": "svc@example.iam.gserviceaccount.com"}'
+    )
     config = make_config(service_account)
 
     client = MagicMock()

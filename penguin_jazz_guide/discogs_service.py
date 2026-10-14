@@ -25,6 +25,23 @@ def _extract_format_names(raw_formats) -> list[str]:
     return names
 
 
+def _extract_catalog_numbers(raw_catalog_numbers) -> list[str]:
+    if not raw_catalog_numbers:
+        return []
+    if isinstance(raw_catalog_numbers, (list, tuple)):
+        return [str(value) for value in raw_catalog_numbers if value]
+    return [str(raw_catalog_numbers)]
+
+
+def _catalog_numbers_from_release(release) -> list[str]:
+    raw_catalog_numbers = getattr(release, "catno", None)
+    if raw_catalog_numbers is None:
+        data = getattr(release, "data", None)
+        if isinstance(data, dict):
+            raw_catalog_numbers = data.get("catno")
+    return _extract_catalog_numbers(raw_catalog_numbers)
+
+
 def _country_rank(country: str | None, preference: list[str]) -> int:
     if not country:
         return len(preference) + 1
@@ -71,6 +88,7 @@ class DiscogsService:
                         year=getattr(release, "year", None) or None,
                         country=getattr(release, "country", None) or None,
                         formats=formats,
+                        catalog_numbers=_catalog_numbers_from_release(release),
                     )
                 )
             except Exception as exc:  # noqa: BLE001
@@ -103,7 +121,9 @@ class DiscogsService:
             title = getattr(item, "title", None)
             if not title:
                 continue
-            tracks.append(Track(position=getattr(item, "position", "") or "", title=title))
+            tracks.append(
+                Track(position=getattr(item, "position", "") or "", title=title)
+            )
         return tracks
 
     @staticmethod

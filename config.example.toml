@@ -18,7 +18,14 @@ country_preference = ["US", "Japan", "Europe", "UK"]
 client_id = "YOUR_SPOTIFY_CLIENT_ID"
 client_secret = "YOUR_SPOTIFY_CLIENT_SECRET"
 
+# Optional: used by --playlist mode to log in to your Spotify account.
+# Add this exact redirect URI to your app in the Spotify dashboard.
+# redirect_uri = "http://127.0.0.1:8888/callback"
+# Where the login token is cached (relative to this file).
+# token_cache = ".spotify_token.json"
+
 [google]
+# Not needed for --playlist mode.
 # Path to your Google service account JSON key file.
 service_account_file = "service_account.json"
 

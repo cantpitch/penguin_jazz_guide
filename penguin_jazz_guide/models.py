@@ -15,6 +15,7 @@ class ReleaseMatch:
     year: int | None
     country: str | None
     formats: list[str] = field(default_factory=list)
+    catalog_numbers: list[str] = field(default_factory=list)
 
     @property
     def album_name(self) -> str:
@@ -49,6 +50,7 @@ class AlbumSelection:
     release: ReleaseMatch
     tracks: list[Track]
     album_url: str | None = None
+    discogs_url: str | None = None
 
 
 @dataclass
@@ -59,7 +61,30 @@ class SpotifyAlbumMatch:
     artist: str
     release_date: str | None
     url: str
+    id: str = ""
 
     @property
     def release_date_display(self) -> str:
         return self.release_date or "Unknown"
+
+
+@dataclass
+class SpotifyTrack:
+    """A track on a Spotify album."""
+
+    track_number: int | None
+    name: str
+    uri: str
+
+
+@dataclass
+class SpotifyPlaylist:
+    """A playlist the current Spotify user can add items to."""
+
+    id: str
+    name: str
+    item_count: int | None = None
+
+    @property
+    def item_count_display(self) -> str:
+        return "?" if self.item_count is None else str(self.item_count)
